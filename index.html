@@ -887,8 +887,14 @@
     }
 
     // UPDATED SERVER CONTACT BRIDGE USING STANDARD WEB FETCH API
-    fetch(`${API_URL}?pin=${encodeURIComponent(enteredPin)}&id=${encodeURIComponent(scanId)}`)
-      .then(response => response.json())
+    fetch(`${API_URL}?pin=${encodeURIComponent(enteredPin)}&id=${encodeURIComponent(scanId)}`, {
+      method: "GET",
+      redirect: "follow" // <-- THIS IS CRUCIAL! It tells the browser to follow Google's internal security redirects
+    })
+      .then(response => {
+        if (!response.ok) throw new Error("Network response was not ok");
+        return response.json();
+      })
       .then(response => {
         if (response.authorized === true) {
           // Flatten database response map arrays to stay matching your template structure
@@ -925,7 +931,7 @@
       .catch(err => {
         console.error("API Gateway Fail: ", err);
         if (splashScreen) splashScreen.style.display = 'none';
-        alert("Network Gateway connection failure. Check your API_URL assignment.");
+        alert("Network Gateway connection failure. Check your API_URL assignment or deployment permissions.");
       });
   }
 
