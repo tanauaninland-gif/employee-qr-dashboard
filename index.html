@@ -887,18 +887,25 @@
     }
 
     // UPDATED SERVER CONTACT BRIDGE USING STANDARD WEB FETCH API
+    // CALL YOUR GOOGLE SCRIPT WEB APP API URL DIRECTLY
     fetch(`${API_URL}?pin=${encodeURIComponent(enteredPin)}&id=${encodeURIComponent(scanId)}`, {
       method: "GET",
-      redirect: "follow" // <-- THIS IS CRUCIAL! It tells the browser to follow Google's internal security redirects
+      redirect: "follow"
     })
       .then(response => {
-        if (!response.ok) throw new Error("Network response was not ok");
+        if (!response.ok) throw new Error("Network response error");
         return response.json();
       })
       .then(response => {
         if (response.authorized === true) {
-          // Flatten database response map arrays to stay matching your template structure
-          employees = response.employeePayload ? [response.employeePayload] : [];
+          // FIX: Safely structure both array lists or single objects into an array layout
+          if (Array.isArray(response.employeePayload)) {
+            employees = response.employeePayload;
+          } else if (response.employeePayload) {
+            employees = [response.employeePayload]; // Wraps a single employee object cleanly
+          } else {
+            employees = [];
+          }
           
           document.getElementById(PIN_MODAL_ID).style.display = 'none';
           if (typeof resetLockout === "function") resetLockout(true);
@@ -933,7 +940,6 @@
         if (splashScreen) splashScreen.style.display = 'none';
         alert("Network Gateway connection failure. Check your API_URL assignment or deployment permissions.");
       });
-  }
 
   function checkInitialLockout() {
     const attempts = Number(localStorage.getItem('pin_attempts'));
