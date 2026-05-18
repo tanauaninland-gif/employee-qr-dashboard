@@ -758,6 +758,9 @@
   let leadershipData = [];
   let countdownInterval;
 
+  // IMPORTANT: Set your real Web App URL from Google Apps Script deployment here!
+  const API_URL = "https://script.google.com/macros/s/YOUR_REAL_DEPLOYMENT_ID_HERE/exec";
+
   // Security Configuration Enforcements
   const MAX_ATTEMPTS = 5;
   const LOCK_TIME_1 = 1 * 60 * 1000; 
@@ -772,11 +775,9 @@
   const PAGE_DETAILS_ID = "pageDetails";
   const DASHBOARD_ID = "mainDashboard";
   const SPLASH_SCREEN_ID = "splash-screen";
-  const API_URL = "https://script.google.com/macros/s/AKfycbx8Yhh8Z067Zy5dTP1zqFj9uZ40gsjHtCTQ742h60rpXLDxoo_hpnntESQRE6OhTLPbxQ/exec";
 
   // Central Initializer
   window.onload = () => {
-    // Fail-safe check to make sure external functions exist before running
     if (typeof checkInitialLockout === "function") {
       checkInitialLockout(); 
     }
@@ -791,11 +792,11 @@
     container.innerHTML = ''; // Clear existing
     const span = document.createElement('span');
     span.className = 'watermark-text';
+    span.innerText = id || "";
     container.appendChild(span);
   }
 
   function setupPrivacyListeners() {
-    // 1. TAB BLUR PROTECTION
     window.addEventListener('blur', () => {
       const main = document.getElementById(PAGE_DETAILS_ID) || document.getElementById(DASHBOARD_ID);
       if (main) main.style.filter = 'blur(15px)';
@@ -806,12 +807,10 @@
       if (main) main.style.filter = 'none';
     });
 
-    // 2. CONSOLIDATED KEYBOARD BLOCKER
     document.addEventListener('keydown', (e) => {
       const forbiddenKeys = ['p', 's', 'u', 'i', 'c', 'j'];
       const key = e.key.toLowerCase();
 
-      // Block Ctrl+P, S, U OR Ctrl+Shift+I, C, J
       const isCtrlShortcut = e.ctrlKey && forbiddenKeys.includes(key);
       const isDevToolsShortcut = e.ctrlKey && e.shiftKey && ['i', 'c', 'j'].includes(key);
       const isF12 = e.keyCode === 123;
@@ -824,27 +823,24 @@
       }
     });
 
-    // 3. BLOCK RIGHT CLICK
     document.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       alert("Security Policy: Right-click is disabled.");
     });
   }
 
-  // 4. THE DEBUGGER TRICK
+  // Debugger loop
   (function() {
     setInterval(() => {
       const start = performance.now();
       debugger; 
       const end = performance.now();
-
       if (end - start > 100) {
         document.body.classList.add(PANIC_CLASS);
       }
     }, 1000);
   })();
 
-  // 5. PIN Processing Logic
   function handlePinSubmit() {
     const pinInputField = document.getElementById(PIN_INPUT_ID);
     if (pinInputField) {
@@ -852,13 +848,15 @@
     }
   }
 
+  // 1. UPDATED: API-Compatible PIN Verification
   function verifyPin(enteredPin) {
     let currentAttempts = Number(localStorage.getItem(ATTEMPTS_KEY)) || 0;
     let lockoutTimestamp = Number(localStorage.getItem(LOCKOUT_KEY)) || 0;
     const currentTime = Date.now();
     
-    // Server fallback parsing engine context verification
-    const scanId = "<?= initialId ?>" || "GUEST_SESSION";
+    // Fixed URL reading instead of relying on broken Google template shortcodes
+    const urlParams = new URLSearchParams(window.location.search);
+    const scanId = urlParams.get('id') || "GUEST_SESSION";
 
     const pinInputField = document.getElementById(PIN_INPUT_ID);
 
@@ -888,90 +886,98 @@
       splashScreen.style.visibility = 'visible';
     }
 
-    // SERVER CONTACT BRIDGE
-    google.script.run.withSuccessHandler(response => {
-      if (response.authorized === true) {
-        employees = response.employeePayload;
-        document.getElementById(PIN_MODAL_ID).style.display = 'none';
-        if (typeof resetLockout === "function") resetLockout(true);
-        if (typeof processReceivedPayload === "function") {
-          processReceivedPayload(employees, scanId);
-        }
-      } else {
-        if (splashScreen) splashScreen.style.display = 'none';
-
-        // Clear and focus the textbox immediately on failure
-        if (pinInputField) {
-          pinInputField.value = ""; 
-          pinInputField.focus();    
-        }
-        
-        currentAttempts++;
-        localStorage.setItem(ATTEMPTS_KEY, currentAttempts);
-
-        if (currentAttempts === 3) {
-          localStorage.setItem(LOCKOUT_KEY, Date.now());
-          if (typeof startCountdown === "function") startCountdown(Date.now(), LOCK_TIME_1, false);
-        } else if (currentAttempts >= 5) {
-          localStorage.setItem(LOCKOUT_KEY, Date.now());
-          if (typeof startCountdown === "function") startCountdown(Date.now(), LOCK_TIME_FINAL, true);
+    // UPDATED SERVER CONTACT BRIDGE USING STANDARD WEB FETCH API
+    fetch(`${API_URL}?pin=${encodeURIComponent(enteredPin)}&id=${encodeURIComponent(scanId)}`)
+      .then(response => response.json())
+      .then(response => {
+        if (response.authorized === true) {
+          // Flatten database response map arrays to stay matching your template structure
+          employees = response.employeePayload ? [response.employeePayload] : [];
+          
+          document.getElementById(PIN_MODAL_ID).style.display = 'none';
+          if (typeof resetLockout === "function") resetLockout(true);
+          
+          if (typeof processReceivedPayload === "function") {
+            processReceivedPayload(employees, scanId, response.extraData);
+          }
         } else {
-          alert("Incorrect PIN. Attempt " + currentAttempts + " of 5");
+          if (splashScreen) splashScreen.style.display = 'none';
+
+          if (pinInputField) {
+            pinInputField.value = ""; 
+            pinInputField.focus();    
+          }
+          
+          currentAttempts++;
+          localStorage.setItem(ATTEMPTS_KEY, currentAttempts);
+
+          if (currentAttempts === 3) {
+            localStorage.setItem(LOCKOUT_KEY, Date.now());
+            if (typeof startCountdown === "function") startCountdown(Date.now(), LOCK_TIME_1, false);
+          } else if (currentAttempts >= 5) {
+            localStorage.setItem(LOCKOUT_KEY, Date.now());
+            if (typeof startCountdown === "function") startCountdown(Date.now(), LOCK_TIME_FINAL, true);
+          } else {
+            alert("Incorrect PIN. Attempt " + currentAttempts + " of 5");
+          }
         }
-      }
-    }).gatekeeperVerifyPin(enteredPin, scanId);
+      })
+      .catch(err => {
+        console.error("API Gateway Fail: ", err);
+        if (splashScreen) splashScreen.style.display = 'none';
+        alert("Network Gateway connection failure. Check your API_URL assignment.");
+      });
   }
 
-
-function checkInitialLockout() {
-  const attempts = Number(localStorage.getItem('pin_attempts'));
-  const lockoutTime = Number(localStorage.getItem('lockout_timestamp'));
-  
-  if (lockoutTime > 0) {
-    const isFinalLock = (attempts >= 5);
-    const waitTime = isFinalLock ? LOCK_TIME_FINAL : LOCK_TIME_1;
+  function checkInitialLockout() {
+    const attempts = Number(localStorage.getItem('pin_attempts'));
+    const lockoutTime = Number(localStorage.getItem('lockout_timestamp'));
     
-    if (Date.now() - lockoutTime < waitTime) {
-      startCountdown(lockoutTime, waitTime, isFinalLock);
-    } else {
-      // If time passed while tab was closed, 
-      // only full reset if it was the 30-min lock
-      resetLockout(isFinalLock);
+    if (lockoutTime > 0) {
+      const isFinalLock = (attempts >= 5);
+      const waitTime = isFinalLock ? LOCK_TIME_FINAL : LOCK_TIME_1;
+      
+      if (Date.now() - lockoutTime < waitTime) {
+        startCountdown(lockoutTime, waitTime, isFinalLock);
+      } else {
+        resetLockout(isFinalLock);
+      }
     }
   }
-}
 
   function startCountdown(startTime, duration, isFinal) {
-  const msgLabel = document.getElementById('lockoutMsg');
-  const inputField = document.getElementById('pinInput');
-  const submitBtn = document.getElementById('submitBtn');
+    const msgLabel = document.getElementById('lockoutMsg');
+    const inputField = document.getElementById('pinInput');
+    const submitBtn = document.getElementById('submitBtn');
 
-  inputField.disabled = true;
-  submitBtn.disabled = true;
-  msgLabel.style.display = "block"; // Show the box
+    if (inputField) inputField.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    if (msgLabel) msgLabel.style.display = "block";
 
-  clearInterval(countdownInterval);
-  countdownInterval = setInterval(() => {
-    const now = Date.now();
-    const remaining = duration - (now - startTime);
+    clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+      const now = Date.now();
+      const remaining = duration - (now - startTime);
 
-    if (remaining <= 0) {
-      clearInterval(countdownInterval);
-      resetLockout();
-      msgLabel.innerText = "System refreshed. Try again.";
-    } else {
-      const mins = Math.floor(remaining / 60000);
-      const secs = Math.floor((remaining % 60000) / 1000);
-      const timeStr = mins + ":" + (secs < 10 ? '0' : '') + secs;
-      
-      msgLabel.innerText = isFinal 
-        ? "CONTACT ADMIN. Locked: " + timeStr 
-        : "Too many attempts. Try again in " + timeStr;
-    }
-  }, 1000);
-}
+      if (remaining <= 0) {
+        clearInterval(countdownInterval);
+        resetLockout();
+        if (msgLabel) msgLabel.innerText = "System refreshed. Try again.";
+      } else {
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        const timeStr = mins + ":" + (secs < 10 ? '0' : '') + secs;
+        
+        if (msgLabel) {
+          msgLabel.innerText = isFinal 
+            ? "CONTACT ADMIN. Locked: " + timeStr 
+            : "Too many attempts. Try again in " + timeStr;
+        }
+      }
+    }, 1000);
+  }
 
-function resetLockout(fullReset) {
+  function resetLockout(fullReset) {
     if (fullReset) localStorage.setItem('pin_attempts', 0);
     localStorage.setItem('lockout_timestamp', 0);
     
@@ -985,7 +991,7 @@ function resetLockout(fullReset) {
   }
 
   // --- DATA GRAPH UI RENDERING ENGINE ---
-  function processReceivedPayload(data, scanId) {
+  function processReceivedPayload(data, scanId, preloadedExtraData) {
     const container = document.getElementById('listContainer');
     const splash = document.getElementById('splash-screen');
     if (!container) return;
@@ -1001,7 +1007,7 @@ function resetLockout(fullReset) {
         <span class="card-name">${emp.name}</span>
         <span class="card-position">${emp.position}</span>
       `;
-      card.onclick = () => renderDetails(i);
+      card.onclick = () => renderDetails(i, preloadedExtraData);
       container.appendChild(card);
     });
 
@@ -1012,13 +1018,14 @@ function resetLockout(fullReset) {
 
     if (scanId && scanId !== "undefined") {
       const idx = data.findIndex(e => String(e.idNo).trim() === String(scanId).trim());
-      if (idx !== -1) renderDetails(idx);
+      if (idx !== -1) renderDetails(idx, preloadedExtraData);
     }
     
     createWatermark(scanId);
   }
 
-  function renderDetails(index) {
+  // 2. UPDATED: Passing down preloaded extra packet variables safely
+  function renderDetails(index, preloadedExtraData) {
     const emp = employees[index];
     if (!emp) return;
 
@@ -1109,19 +1116,21 @@ function resetLockout(fullReset) {
         shoesEl.className = "value " + getShoesClass(emp.shoes);
       }
 
-      fetchExtraData(emp.idNo, isRestricted);
+      // Render out pre-loaded incident history dataset vectors
+      displayExtraData(preloadedExtraData, isRestricted);
     }
 
     window.scrollTo(0, 0);
   }
 
-  function fetchExtraData(empId, isRestricted) {
+  // 3. UPDATED: Local functional processing layout map instead of background google.script callbacks
+  function displayExtraData(extra, isRestricted) {
     const vList = document.getElementById('violationList');
     const cList = document.getElementById('commendationList');
     const vCount = document.getElementById('vCount');
     const cCount = document.getElementById('cCount');
 
-    if (isRestricted) {
+    if (isRestricted || !extra) {
       vCount.innerText = "0";
       cCount.innerText = "0";
       vList.innerHTML = "<div style='padding:10px; color:#999;'><i>Content Restricted</i></div>";
@@ -1129,46 +1138,41 @@ function resetLockout(fullReset) {
       return;
     }
 
-    vList.innerHTML = "<div style='padding:10px; color:#666;'>Loading...</div>";
-    cList.innerHTML = "<div style='padding:10px; color:#666;'>Loading...</div>";
+    animateValue(vCount, extra.violationCount || 0);
+    animateValue(cCount, extra.commendationCount || 0);
 
-    google.script.run.withSuccessHandler(function(extra) {
-      animateValue(vCount, extra.violationCount || 0);
-      animateValue(cCount, extra.commendationCount || 0);
+    vList.innerHTML = ""; 
+    if (!extra.violations || extra.violations.length === 0) {
+      vList.innerHTML = "<div style='padding:10px;'><em>No violations.</em></div>";
+    } else {
+      extra.violations.forEach(function(v) {
+        var cleanDate = v.timestamp ? new Date(v.timestamp).toLocaleDateString() : "N/A";
+        var evidenceHtml = (v.evidence && v.evidence.indexOf("http") !== -1) 
+          ? "<a href='" + v.evidence + "' target='_blank' style='color:#d93025; font-weight:bold;'>View Evidence</a>" 
+          : "<span style='color:#999;'>No Evidence</span>";
+        
+        var html = "<div style='border-left:4px solid #d93025; padding:10px; margin-bottom:10px; background:#fff5f5; border-radius:0 5px 5px 0; text-align:left;'>" +
+                   "<div style='font-weight:bold; color:#d93025; text-transform:uppercase; font-size:0.85rem;'>" + (v.type || "Violation") + "</div>" +
+                   "<div style='margin:5px 0; font-size:0.95rem;'>" + (v.specify || "") + "</div>" +
+                   "<div style='font-size:0.75rem; color:#666; margin-bottom:5px;'>Reported by: " + (v.witness || "N/A") + " on " + cleanDate + "</div>" +
+                   evidenceHtml + "</div>";
+        vList.innerHTML += html;
+      });
+    }
 
-      vList.innerHTML = ""; 
-      if (!extra.violations || extra.violations.length === 0) {
-        vList.innerHTML = "<div style='padding:10px;'><em>No violations.</em></div>";
-      } else {
-        extra.violations.forEach(function(v) {
-          var cleanDate = v.timestamp ? new Date(v.timestamp).toLocaleDateString() : "N/A";
-          var evidenceHtml = (v.evidence && v.evidence.indexOf("http") !== -1) 
-            ? "<a href='" + v.evidence + "' target='_blank' style='color:#d93025; font-weight:bold;'>View Evidence</a>" 
-            : "<span style='color:#999;'>No Evidence</span>";
-          
-          var html = "<div style='border-left:4px solid #d93025; padding:10px; margin-bottom:10px; background:#fff5f5; border-radius:0 5px 5px 0; text-align:left;'>" +
-                     "<div style='font-weight:bold; color:#d93025; text-transform:uppercase; font-size:0.85rem;'>" + (v.type || "Violation") + "</div>" +
-                     "<div style='margin:5px 0; font-size:0.95rem;'>" + (v.specify || "") + "</div>" +
-                     "<div style='font-size:0.75rem; color:#666; margin-bottom:5px;'>Reported by: " + (v.witness || "N/A") + " on " + cleanDate + "</div>" +
-                     evidenceHtml + "</div>";
-          vList.innerHTML += html;
-        });
-      }
-
-      cList.innerHTML = "";
-      if (!extra.commendations || extra.commendations.length === 0) {
-        cList.innerHTML = "<div style='padding:10px;'><em>No commendations.</em></div>";
-      } else {
-        extra.commendations.forEach(function(c) {
-          var cleanDate = c.timestamp ? new Date(c.timestamp).toLocaleDateString() : "N/A";
-          var html = "<div style='border-left:4px solid #188038; padding:10px; margin-bottom:10px; background:#f6fffa; border-radius:0 5px 5px 0; text-align:left;'>" +
-                     "<div style='font-weight:bold; color:#188038; text-transform:uppercase; font-size:0.85rem;'>Commendation</div>" +
-                     "<div style='margin:5px 0; font-size:0.95rem;'>" + (c.text || "") + "</div>" +
-                     "<div style='font-size:0.75rem; color:#666;'>On " + cleanDate + "</div></div>";
-          cList.innerHTML += html;
-        });
-      }
-    }).getExtraData(empId);
+    cList.innerHTML = "";
+    if (!extra.commendations || extra.commendations.length === 0) {
+      cList.innerHTML = "<div style='padding:10px;'><em>No commendations.</em></div>";
+    } else {
+      extra.commendations.forEach(function(c) {
+        var cleanDate = c.timestamp ? new Date(c.timestamp).toLocaleDateString() : "N/A";
+        var html = "<div style='border-left:4px solid #188038; padding:10px; margin-bottom:10px; background:#f6fffa; border-radius:0 5px 5px 0; text-align:left;'>" +
+                   "<div style='font-weight:bold; color:#188038; text-transform:uppercase; font-size:0.85rem;'>Commendation</div>" +
+                   "<div style='margin:5px 0; font-size:0.95rem;'>" + (c.text || "") + "</div>" +
+                   "<div style='font-size:0.75rem; color:#666;'>On " + cleanDate + "</div></div>";
+        cList.innerHTML += html;
+      });
+    }
   }
 
   function animateValue(obj, value) {
@@ -1185,22 +1189,29 @@ function resetLockout(fullReset) {
     document.getElementById('pageList').classList.remove('hidden');
   }
 
+  // 4. UPDATED: Fetch Leadership Teams over custom REST API pipeline parameters
   function showTeamPage() {
     document.getElementById('pageList').classList.add('hidden');
     document.getElementById('pageDetails').classList.add('hidden');
     document.getElementById('pageTeam').classList.remove('hidden');
     
-    // Check if leadership data has been requested yet. If not, async fetch from server.
     if (leadershipData.length === 0) {
       const grid = document.getElementById('teamGrid');
       if(grid) grid.innerHTML = "<div style='padding:20px; text-align:center; color:white;'>Loading Team Directory...</div>";
       
-      google.script.run
-        .withSuccessHandler(serverData => {
-          leadershipData = serverData; 
-          renderTeam();
+      const currentPin = document.getElementById(PIN_INPUT_ID).value;
+
+      fetch(`${API_URL}?pin=${encodeURIComponent(currentPin)}&action=leadership`)
+        .then(res => res.json())
+        .then(serverData => {
+           // Fallback layout check handles standard payload container object wraps
+           leadershipData = serverData.leadershipPayload || [];
+           renderTeam();
         })
-        .getLeadershipData();
+        .catch(err => {
+           console.error("Leadership loading broke: ", err);
+           if(grid) grid.innerHTML = "<div style='padding:20px; text-align:center; color:red;'>Failed to load Directory elements.</div>";
+        });
     } else {
       renderTeam(); 
     }
@@ -1210,6 +1221,11 @@ function resetLockout(fullReset) {
     const grid = document.getElementById('teamGrid');
     if (!grid) return;
     
+    if(leadershipData.length === 0) {
+      grid.innerHTML = "<div style='padding:20px; text-align:center; color:white;'>No organizational directory entries configured.</div>";
+      return;
+    }
+
     grid.innerHTML = leadershipData.map((member, index) => `
       <div class="team-card" id="member-${index}">
         <img src="${member.img}" class="team-img">
